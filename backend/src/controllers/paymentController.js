@@ -1048,3 +1048,172 @@ exports.verifyPayment = async (req, res) => {
     }
   }
 };
+/* =========================================================
+   CREATE COD ORDER
+   POST /api/payments/cod-order
+   Body: { cart_id, customer_name, mobile, location }
+========================================================= */
+
+exports.createCodOrder = async (req, res) => {
+  let connection;
+
+  try {
+    const finalCartId = Number(req.body.cart_id || req.body.cartId);
+    const finalCustomerName = String(req.body.customer_name || "").trim();
+    const finalMobile = String(req.body.mobile || "").trim();
+    const finalLocation = String(req.body.location || "").trim();
+
+    if (!Number.isInteger(finalCartId) || finalCartId <= 0) {
+      return res.status(400).json({ success: false, message: "Valid cart id is required." });
+    }
+    if (!finalCustomerName) {
+      return res.status(400).json({ success: false, message: "Customer name is required." });
+    }
+    if (!/^[6-9]\d{9}$/.test(finalMobile)) {
+      return res.status(400).json({ success: false, message: "Enter a valid 10 digit mobile number." });
+    }
+    if (!["Main campus", "Manikonda campus"].includes(finalLocation)) {
+      return res.status(400).json({ success: false, message: "Please select a valid location." });
+    }
+
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    const carts = await query(
+      connection,
+      `SELECT id, status FROM carts WHERE id = ? LIMIT 1 FOR UPDATE`,
+      [finalCartId]
+    );
+
+    if (!carts.length) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: "Cart not found." });
+    }
+    if (carts[0].status !== "active") {
+      await connection.rollback();
+      return res.status(400).json({ success: false, message: "This cart is no longer active." });
+    }
+
+    const cartItems = await query(
+      connection,
+      `
+        SELECT ci.menu_item_id, ci.quantity,
+               mi.name AS current_item_name,
+               mi.portion_type AS current_portion_type,
+               mi.amount AS current_amount,
+               mi.is_active
+        FROM cart_items ci
+        INNER JOIN menu_items mi ON mi.id = ci.menu_item_id
+        WHERE ci.cart_id = ?
+        ORDER BY ci.id ASC
+      `,
+      [finalCartId]
+    );
+
+    if (!cartItems.length) {
+      await connection.rollback();
+      return res.status(400).json({ success: false, message: "Your cart is empty." });
+    }
+
+    let finalTotal = 0;
+    const verifiedItems = [];
+
+    for (const item of cartItems) {
+      if (Number(item.is_active) !== 1) {
+        await connection.rollback();
+        return res.status(400).json({
+          success: false,
+          message: `${item.current_item_name} is currently unavailable.`,
+        });
+      }
+
+      const quantity = Math.max(1, Number(item.quantity || 1));
+      const unitAmount = Number(item.current_amount || 0);
+      const itemTotal = Number((unitAmount * quantity).toFixed(2));
+
+      finalTotal += itemTotal;
+
+      verifiedItems.push({
+        menu_item_id: item.menu_item_id,
+        item_name: item.current_item_name,
+        portion_type: item.current_portion_type,
+        quantity,
+        unit_amount: unitAmount,
+        total_amount: itemTotal,
+      });
+    }
+
+    finalTotal = Number(finalTotal.toFixed(2));
+
+    if (!Number.isFinite(finalTotal) || finalTotal <= 0) {
+      await connection.rollback();
+      return res.status(400).json({ success: false, message: "Invalid cart total." });
+    }
+
+    await query(connection, `UPDATE carts SET total_amount = ? WHERE id = ?`, [finalTotal, finalCartId]);
+
+    const orderResult = await query(
+      connection,
+      `
+        INSERT INTO orders
+        (customer_name, mobile, location, total_amount, payment_method, payment_status)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `,
+      [finalCustomerName, finalMobile, finalLocation, finalTotal, "COD", "pending"]
+    );
+
+    const orderId = orderResult.insertId;
+
+    for (const item of verifiedItems) {
+      await query(
+        connection,
+        `
+          INSERT INTO order_items
+          (order_id, menu_item_id, item_name, portion_type, quantity, unit_amount, total_amount)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          orderId,
+          item.menu_item_id,
+          item.item_name,
+          item.portion_type,
+          item.quantity,
+          item.unit_amount,
+          item.total_amount,
+        ]
+      );
+    }
+
+    await query(connection, `UPDATE carts SET status = 'completed' WHERE id = ?`, [finalCartId]);
+
+    await connection.commit();
+
+    return res.status(200).json({
+      success: true,
+      message: "COD order placed successfully.",
+      data: {
+        order_id: orderId,
+        customer_name: finalCustomerName,
+        mobile: finalMobile,
+        location: finalLocation,
+        total_amount: finalTotal,
+        payment_method: "COD",
+        payment_status: "pending",
+        items: verifiedItems,
+      },
+    });
+  } catch (error) {
+    console.error("CREATE COD ORDER ERROR:", error);
+
+    if (connection) {
+      try { await connection.rollback(); } catch (e) { console.error("ROLLBACK ERROR:", e); }
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: error?.message || "Unable to place COD order.",
+    });
+  } finally {
+    if (connection) connection.release();
+  }
+};

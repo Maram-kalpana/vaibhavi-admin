@@ -4,6 +4,7 @@ const express =
 const {
   createPaymentOrder,
   verifyPayment,
+  createCodOrder,
 } = require(
   "../controllers/paymentController"
 );
@@ -19,6 +20,11 @@ router.post(
 router.post(
   "/verify",
   verifyPayment
+);
+
+router.post(
+  "/cod-order",
+  createCodOrder
 );
 
 module.exports = router;

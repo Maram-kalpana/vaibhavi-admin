@@ -34,11 +34,12 @@ const formatDate = (date) => {
 ========================================= */
 
 const TABLE_COLUMNS = [
-  { label: "Order ID",   key: "id",            width: 55  },
-  { label: "Customer",   key: "customer_name", width: 90  },
-  { label: "Location",   key: "location",      width: 90  },
-  { label: "Mobile",     key: "mobile",        width: 85  },
-  { label: "Order Item", key: "orderItems",    width: 185 },
+  { label: "Order ID",   key: "id",            width: 50  },
+  { label: "Customer",   key: "customer_name", width: 80  },
+  { label: "Location",   key: "location",      width: 80  },
+  { label: "Mobile",     key: "mobile",        width: 75  },
+  { label: "Order Item", key: "orderItems",    width: 140 },
+  { label: "Payment",    key: "paymentLabel",  width: 80  },
 ];
 
 const CELL_PADDING_X = 8;
@@ -171,18 +172,20 @@ exports.downloadOrdersPdf = async (req, res) => {
     const placeholders = orderIds.map(() => "?").join(",");
 
     const [orders] = await db.execute(
-      `SELECT
-         id,
-         customer_name,
-         mobile,
-         location,
-         total_amount,
-         created_at
-       FROM orders
-       WHERE id IN (${placeholders})
-         AND payment_status = 'paid'`,
-      orderIds
-    );
+  `SELECT
+     id,
+     customer_name,
+     mobile,
+     location,
+     total_amount,
+     payment_method,
+     payment_status,
+     created_at
+   FROM orders
+   WHERE id IN (${placeholders})
+     AND (payment_status = 'paid' OR payment_method = 'COD')`,
+  orderIds
+);
 
     if (orders.length !== orderIds.length) {
       return res.status(400).json({
@@ -226,14 +229,19 @@ exports.downloadOrdersPdf = async (req, res) => {
     );
 
     const selectedOrders = orderIds.map((id) => {
-      const order = orderMap.get(id);
+  const order = orderMap.get(id);
 
-      return {
-        ...order,
-        orderItems: (itemMap.get(id) || []).join(", ") || "-",
-      };
-    });
+  const paymentLabel =
+    order.payment_method === "COD" && order.payment_status !== "paid"
+      ? "COD - Collect"
+      : "Paid";
 
+  return {
+    ...order,
+    paymentLabel,
+    orderItems: (itemMap.get(id) || []).join(", ") || "-",
+  };
+});
     const doc = new PDFDocument({
       size: "A4",
       margin: 45,

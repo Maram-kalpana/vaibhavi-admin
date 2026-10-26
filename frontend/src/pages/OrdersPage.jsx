@@ -237,6 +237,8 @@ const [downloadError, setDownloadError] = useState("");
                 getMobile(order),
 
               location: order?.location || "-",
+              paymentMethod: order?.payment_method || order?.paymentMethod || "-",
+paymentStatus: order?.payment_status || order?.paymentStatus || "-",
 
               items: [],
 
@@ -562,14 +564,19 @@ groupedOrder.items.push(
 
         customerName:
           order.customerName,
-
         mobile:
           order.mobile,
 
-          location:
-  order.location,
+        location:
+          order.location,
 
-size:
+        paymentMethod:
+          order.paymentMethod,
+
+        paymentStatus:
+          order.paymentStatus,
+
+        size:
   order.sizes.length > 0
     ? order.sizes.join(", ")
     : "-",
@@ -931,7 +938,7 @@ const handleDownloadPdf = async () => {
           */}
 
           {/* <table className="w-full min-w-[1050px] border-collapse"> */}
-          <table className="w-full min-w-[1350px] border-collapse">
+          <table className="w-full min-w-[1500px] border-collapse">
 
             <thead>
 
@@ -990,6 +997,9 @@ const handleDownloadPdf = async () => {
                 <th className="min-w-[150px] whitespace-nowrap px-5 py-4 text-left text-xs font-bold uppercase tracking-[0.04em] text-slate-500">
                   Total Amount
                 </th>
+                <th className="min-w-[170px] whitespace-nowrap px-5 py-4 text-left text-xs font-bold uppercase tracking-[0.04em] text-slate-500">
+  Payment
+</th>
 
 
                 {/* ORDER DATE */}
@@ -1010,7 +1020,7 @@ const handleDownloadPdf = async () => {
                 <tr>
 
                   <td
-                    colSpan="8"
+                    colSpan="9"
                     className="px-5 py-16 text-center"
                   >
 
@@ -1134,6 +1144,17 @@ const handleDownloadPdf = async () => {
                         </span>
 
                       </td>
+                      <td className="whitespace-nowrap px-5 py-4">
+  {order.paymentMethod === "COD" && order.paymentStatus !== "paid" ? (
+    <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
+      COD - Collect cash
+    </span>
+  ) : (
+    <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-bold text-green-700">
+      {order.paymentMethod === "COD" ? "COD - Paid" : "Paid Online"}
+    </span>
+  )}
+</td>
 
 
                       {/* =========================
@@ -1171,7 +1192,7 @@ const handleDownloadPdf = async () => {
                     </p>
 
                     <p className="mt-1 text-xs text-slate-400">
-                      Successful customer orders will appear here.
+                     Customer orders will appear here.
                     </p>
 
                   </td>

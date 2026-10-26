@@ -12,22 +12,24 @@ exports.getOrders = async (req, res) => {
     ===================================================== */
 
     const [orders] = await db.query(
-      `
-        SELECT
-          id,
-          customer_name,
-          mobile,
-          location,
-          total_amount,
-          payment_status,
-          razorpay_order_id,
-          razorpay_payment_id,
-          created_at
-        FROM orders
-        WHERE payment_status = 'paid'
-        ORDER BY created_at DESC, id DESC
-      `
-    );
+  `
+    SELECT
+      id,
+      customer_name,
+      mobile,
+      location,
+      total_amount,
+      payment_method,
+      payment_status,
+      razorpay_order_id,
+      razorpay_payment_id,
+      created_at
+    FROM orders
+    WHERE payment_status = 'paid'
+       OR payment_method = 'COD'
+    ORDER BY created_at DESC, id DESC
+  `
+);
 
 
     /* =====================================================
@@ -321,6 +323,11 @@ portion_type: item.portion_type,
             Number(
               order.total_amount || 0
             ),
+            paymentMethod:
+  order.payment_method,
+
+payment_method:
+  order.payment_method,
 
 
           /* ===============================================
