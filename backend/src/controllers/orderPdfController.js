@@ -28,97 +28,120 @@ const formatDate = (date) => {
   });
 };
 
-function drawOrderDetails(doc, order) {
+/* =========================================
+   TABLE SETTINGS
+   Total width = 505 (fits A4 with 45pt margins)
+========================================= */
+
+const TABLE_COLUMNS = [
+  { label: "Order ID",   key: "id",            width: 55  },
+  { label: "Customer",   key: "customer_name", width: 90  },
+  { label: "Location",   key: "location",      width: 90  },
+  { label: "Mobile",     key: "mobile",        width: 85  },
+  { label: "Order Item", key: "orderItems",    width: 185 },
+];
+
+const CELL_PADDING_X = 8;
+const CELL_PADDING_Y = 8;
+const FONT_SIZE = 9;
+
+function drawTableHeader(doc, left, y) {
+  const totalWidth = TABLE_COLUMNS.reduce((sum, c) => sum + c.width, 0);
+  const headerHeight = 28;
+
+  doc.rect(left, y, totalWidth, headerHeight).fill(BRAND_RED);
+
+  let x = left;
+
+  doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(FONT_SIZE);
+
+  TABLE_COLUMNS.forEach((col) => {
+    doc.text(col.label.toUpperCase(), x + CELL_PADDING_X, y + 10, {
+      width: col.width - CELL_PADDING_X * 2,
+      lineBreak: false,
+    });
+    x += col.width;
+  });
+
+  return y + headerHeight;
+}
+
+function drawOrdersTable(doc, orders) {
   const left = 45;
-  const width = doc.page.width - 90;
-  const labelWidth = 145;
+  const totalWidth = TABLE_COLUMNS.reduce((sum, c) => sum + c.width, 0);
+  const bottomLimit = doc.page.height - 55;
 
-  const ensureSpace = (height) => {
-    if (doc.y + height > doc.page.height - 55) {
-      doc.addPage();
-    }
-  };
+  let y = drawTableHeader(doc, left, doc.y);
 
-  ensureSpace(50);
+  orders.forEach((order, index) => {
+    // Measure the tallest cell in this row
+    doc.font("Helvetica").fontSize(FONT_SIZE);
 
-  const headerY = doc.y;
-
-  doc.rect(left, headerY, width, 30)
-    .fill(BRAND_RED);
-
-  doc.fillColor("#ffffff")
-    .font("Helvetica-Bold")
-    .fontSize(11)
-    .text(
-      `Order #${order.id}`,
-      left + 10,
-      headerY + 9
+    const cellTexts = TABLE_COLUMNS.map((col) =>
+      col.key === "id"
+        ? `#${order.id}`
+        : cleanText(order[col.key]) || "-"
     );
 
-  doc.y = headerY + 30;
+    const rowHeight = Math.max(
+      28,
+      ...cellTexts.map(
+        (text, i) =>
+          doc.heightOfString(text, {
+            width: TABLE_COLUMNS[i].width - CELL_PADDING_X * 2,
+          }) +
+          CELL_PADDING_Y * 2
+      )
+    );
 
-  const fields = [
-    ["Order ID", order.id],
-    ["Customer", order.customer_name],
-    ["Mobile", order.mobile],
-    ["Location", order.location],
-    ["Order Item", order.orderItems],
-    ["Total Amount", formatAmount(order.total_amount)],
-    ["Order Date", formatDate(order.created_at)],
-  ];
+    // New page + repeat header if the row doesn't fit
+    if (y + rowHeight > bottomLimit) {
+      doc.addPage();
+      y = drawTableHeader(doc, left, doc.page.margins.top);
+    }
 
-  fields.forEach(([label, value]) => {
-    const text = cleanText(value) || "-";
-    const valueWidth = width - labelWidth - 20;
+    // Row background (zebra striping)
+    doc
+      .rect(left, y, totalWidth, rowHeight)
+      .fill(index % 2 === 0 ? "#ffffff" : "#f8fafc");
 
-    const valueHeight = doc.heightOfString(text, {
-      width: valueWidth,
-      fontSize: 9,
-    });
-
-    const rowHeight = Math.max(27, valueHeight + 14);
-
-    ensureSpace(rowHeight);
-
-    const y = doc.y;
-
-    doc.rect(left, y, labelWidth, rowHeight)
-      .fill("#f3f5f7");
-
-    doc.rect(
-      left + labelWidth,
-      y,
-      width - labelWidth,
-      rowHeight
-    ).fill("#ffffff");
-
-    doc.rect(left, y, width, rowHeight)
+    // Row border
+    doc
+      .rect(left, y, totalWidth, rowHeight)
       .lineWidth(0.5)
       .stroke("#d6dce2");
 
-    doc.moveTo(left + labelWidth, y)
-      .lineTo(left + labelWidth, y + rowHeight)
-      .stroke("#d6dce2");
+    // Cells
+    let x = left;
 
-    doc.fillColor("#334155")
-      .font("Helvetica-Bold")
-      .fontSize(9)
-      .text(label, left + 8, y + 8, {
-        width: labelWidth - 15,
-      });
+    TABLE_COLUMNS.forEach((col, i) => {
+      if (i > 0) {
+        doc
+          .moveTo(x, y)
+          .lineTo(x, y + rowHeight)
+          .lineWidth(0.5)
+          .stroke("#d6dce2");
+      }
 
-    doc.fillColor("#334155")
-      .font("Helvetica")
-      .fontSize(9)
-      .text(text, left + labelWidth + 8, y + 8, {
-        width: valueWidth,
-      });
+      doc
+        .fillColor("#334155")
+        .font(col.key === "id" ? "Helvetica-Bold" : "Helvetica")
+        .fontSize(FONT_SIZE)
+        .text(cellTexts[i], x + CELL_PADDING_X, y + CELL_PADDING_Y, {
+          width: col.width - CELL_PADDING_X * 2,
+        });
 
-    doc.y = y + rowHeight;
+      x += col.width;
+    });
+
+    y += rowHeight;
+    doc.y = y;
   });
-
-  doc.moveDown(1.3);
 }
+
+/* =========================================
+   DOWNLOAD ORDERS PDF
+========================================= */
 
 exports.downloadOrdersPdf = async (req, res) => {
   try {
@@ -147,8 +170,6 @@ exports.downloadOrdersPdf = async (req, res) => {
 
     const placeholders = orderIds.map(() => "?").join(",");
 
-    // Adapt db import/execute to your existing MySQL pool
-    // if its exported interface is different.
     const [orders] = await db.execute(
       `SELECT
          id,
@@ -246,9 +267,8 @@ exports.downloadOrdersPdf = async (req, res) => {
 
     doc.moveDown(1.5);
 
-    selectedOrders.forEach((order) => {
-      drawOrderDetails(doc, order);
-    });
+    // ⬇️ This is the changed line (table instead of cards)
+    drawOrdersTable(doc, selectedOrders);
 
     doc.end();
   } catch (error) {
